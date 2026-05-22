@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: dnd
+      POSTGRES_PASSWORD: dnd
+      POSTGRES_DB: dnd
+    ports:
+      - "5432:5432"
+    volumes:
+      - dnd_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dnd"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  data-service:
+    build: ./data-service
+    environment:
+      DATABASE_URL: postgresql+psycopg://dnd:dnd@db:5432/dnd
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    # Aplica migrações, semeia e sobe a API
+    command: >
+      sh -c "alembic upgrade head &&
+             python -m app.seed &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  game-service:
+    build: ./game-service
+    environment:
+      PORT: "8080"
+      DATA_SERVICE_URL: http://data-service:8000
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_MODEL: claude-sonnet-4-20250514
+    depends_on:
+      - data-service
+    ports:
+      - "8080:8080"
+
+volumes:
+  dnd_pgdata:
